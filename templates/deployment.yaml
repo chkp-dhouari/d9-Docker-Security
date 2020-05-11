@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ template "cp-resource-management.fullname" . }}
+  labels:
+    app.kubernetes.io/name: {{ template "cp-resource-management.name" . }}
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/version: {{ .values.image.tag }}
+    app.kubernetes.io/part-of: Check Point 
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ template "cp-resource-management.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      annotations:
+        seccomp.security.alpha.kubernetes.io/pod: {{ .Values.podAnnotations.seccomp }}
+        {{- if .Values.podAnnotations.apparmor }}
+        container.apparmor.security.beta.kubernetes.io/cp-resource-management: 
+{{ toYaml .Values.podAnnotations.apparmor | indent 10 }}
+        {{- end }}
+      labels:
+        app.kubernetes.io/name: {{ template "cp-resource-management.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      securityContext:
+        runAsUser: 1000
+      serviceAccountName: {{ if .Values.rbac.create }}{{ template "cp-resource-management.fullname" . }}{{ else }}"{{ .Values.rbac.serviceAccountName }}"{{ end }}
+      {{- if .Values.nodeSelector }}
+      nodeSelector:
+{{ toYaml .Values.nodeSelector | indent 8 }}
+      {{- end }}
+      {{- if .Values.affinity }}
+      affinity:
+{{ toYaml .Values.affinity | indent 8 }}
+      {{- end }}
+      {{- if .Values.tolerations }}
+      tolerations:
+{{ toYaml .Values.tolerations | indent 8 }}
+      {{- end }}
+      {{- if .Values.resources }}
+      resources:          
+{{- toYaml .Values.resources | indent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          volumeMounts:
+            - name: secret-volume
+              mountPath: /etc/secret-volume
+          command: ["/bin/sh"]
+          args: ["-c", "/inventory"]
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+          env:
+            - name: DOME9_URL
+              value: "https://api-cpx.dome9.com"
+            - name: CP_KUBERNETES_CLUSTER_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: cp-dome9-configmap
+                  key: clusterID
+      volumes:
+        - name: secret-volume
+          secret:
+            secretName: cp-dome9-creds              
